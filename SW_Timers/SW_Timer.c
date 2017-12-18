@@ -147,8 +147,6 @@ void SWTimer_Init(void)
 
 	#ifdef FSL_RTOS_FREE_RTOS
 
-	SWTimer_Event = xEventGroupCreate();
-
 	/* create task and event */
 	xTaskCreate((TaskFunction_t) SWTimer_SWTimerTask, (const char*) "SWTimers_task", SWTIMERS_STACK_SIZE,\
 						NULL,SWTIMERS_TASK_PRIORITY,NULL);
@@ -382,6 +380,10 @@ void SWTimer_StartTimers (void)
  *END**************************************************************************/
 void SWTimer_SWTimerTask (void * param)
 {
+	#ifdef FSL_RTOS_FREE_RTOS
+	SWTimer_Event = xEventGroupCreate();
+	#endif
+
 	while(1)
 	{
 		/* service the timers*/
@@ -438,14 +440,14 @@ static void SWTimer_PlatformTimerStop(void)
 
 void LPTMR0_IRQHandler(void)
 {
-	 /* Clear interrupt flag.*/
+	#ifdef FSL_RTOS_FREE_RTOS
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+	#endif
+	/* Clear interrupt flag.*/
 	LPTMR_ClearStatusFlags(TIMER_INSTANCE, kLPTMR_TimerCompareFlag);
 
 	#ifdef FSL_RTOS_FREE_RTOS
-	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-
 	xEventGroupSetBitsFromISR(SWTimer_Event, SWTIMERS_TIMER_EVENT, &xHigherPriorityTaskWoken);
-
 	#else
 	SWTimer_TimerIsrFlag = 1;
 	#endif
