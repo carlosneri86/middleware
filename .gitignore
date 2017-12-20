@@ -1,0 +1,27 @@
+# General stuff we always want to ignore.
+*.rej
+*.orig
+*.a
+*.so
+*.o
+*.d
+*~
+*.swp
+*.patch
+*.diff
+*.depend
+*.map
+*.bin
+*.elf
+*.csv
+*.out
+*.log
+*.idx
+tags
+
+#empty
+
+debug/
+release/
+SeggerTrace/
+settings/
