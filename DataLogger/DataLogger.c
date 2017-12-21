@@ -18,12 +18,15 @@
 #endif
 
 #include "DataLogger.h"
+#include "fsl_port.h"
 #include "fsl_gpio.h"
 #include "fsl_sysmpu.h"
 #include "diskio.h"
 #include "ff.h"
 #include "fsl_host.h"
 #include "Rtc.h"
+#include "SW_Timer.h"
+#include "MiscFunctions.h"
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                   Defines & Macros Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -64,6 +67,8 @@ static void DataLogger_MountFs(void);
 
 static void DataLogger_UnMountFs(void);
 
+static void DataLogger_CardDetectTimerCallback (void);
+
 extern void CardInsertDetectHandle(void);
 
 #ifdef FSL_RTOS_FREE_RTOS
@@ -102,6 +107,8 @@ static xQueueHandle DataLoggerMessageQueue;
 static bool isCardPresent = false;
 
 static int8_t LogMessage[DATALOGGER_MAX_LOG_MESSAGE];
+
+static uint8_t CardDetectTimer;
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                      Functions Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -145,6 +152,10 @@ uint32_t DataLogger_Init(void)
 	uint32_t DataLoggerInitStatus = DATA_LOGGER_OK;
 
 	DataLogger_SystemConfigure();
+
+	DataLogger_MountFs();
+
+	CardDetectTimer = SWTimer_AllocateChannel(500,DataLogger_CardDetectTimerCallback);
 
 	/* create the queue for app messages */
 	DataLoggerMessageQueue = xQueueCreate(DATA_LOGGER_MAX_LOG, sizeof(datalogger_event_t));
@@ -243,12 +254,32 @@ uint32_t DataLogger_PostEvent(uint8_t * pLogMessage, uint8_t *pLogData, uint16_t
 
 	if(isCardPresent)
 	{
-		MessageToPost.LogMessageSize = strlen((char*)pLogMessage);
+		MiscFunctions_MemClear((uint8_t*)&MessageToPost, sizeof(datalogger_event_t));
 
-		strncpy((char*)&MessageToPost.LogMessage[0],(char*)pLogMessage,MessageToPost.LogMessageSize);
+		if(pLogMessage != NULL)
+		{
+			MessageToPost.LogMessageSize = strlen((char*)pLogMessage);
+
+			strncpy((char*)&MessageToPost.LogMessage[0],(char*)pLogMessage,MessageToPost.LogMessageSize);
+
+		}
+		else
+		{
+			MessageToPost.LogMessageSize = 0;
+		}
 
 
-		memcpy(&MessageToPost.LogData, pLogData, LogDataSize);
+
+		if(pLogData != NULL)
+		{
+			memcpy(&MessageToPost.LogData[0], pLogData, LogDataSize);
+
+			MessageToPost.LogDataSize = LogDataSize;
+		}
+		else
+		{
+			MessageToPost.LogDataSize = 0;
+		}
 
 		MessageToPost.Event = DATA_LOGGER_POST_EVENT;
 
@@ -264,7 +295,6 @@ void Datalogger_Task (void * param)
 {
 	datalogger_event_t MessageToPost;
 
-
 	while(1)
 	{
 		xQueueReceive(DataLoggerMessageQueue, &MessageToPost, portMAX_DELAY);
@@ -275,6 +305,7 @@ void Datalogger_Task (void * param)
 			case DATA_LOGGER_POST_EVENT:
 			{
 				DataLogger_WriteMessage(&MessageToPost);
+				MiscFunctions_MemClear((uint8_t*)&MessageToPost, sizeof(datalogger_event_t));
 			}
 			break;
 
@@ -322,10 +353,10 @@ void static DataLogger_WriteMessage(datalogger_event_t * EventPost)
 
 			if(FileSystemStatus == FR_OK)
 			{
+				MiscFunctions_MemClear((uint8_t*)&LogMessage[0], DATALOGGER_MAX_LOG_MESSAGE);
+
 				/* get the current time stamp and fill the buffer*/
 				Rtc_GetCurrentDate(&RtcDate);
-
-				memset(&LogMessage[0],0,DATALOGGER_MAX_LOG_MESSAGE);
 
 				sprintf((char*)&LogMessage[0],"%.2d-%.2d-%d, %.2d:%.2d:%.2d, ",RtcDate.Day,\
 						RtcDate.Month,RtcDate.Year,RtcDate.Hour,\
@@ -336,7 +367,7 @@ void static DataLogger_WriteMessage(datalogger_event_t * EventPost)
 				{
 					strcat((char*)&LogMessage[0], (const char*)&EventPost->LogMessage[0]);
 					/* Calculate the current string size*/
-					MessageSize = EventPost->LogMessageSize;
+					MessageSize = strlen((const char *)&LogMessage[0]);
 					LogMessage[MessageSize] = ',';
 					MessageSize += 1;
 				}
@@ -347,8 +378,7 @@ void static DataLogger_WriteMessage(datalogger_event_t * EventPost)
 					/* Parse the data and add it to the message buffer */
 					while(LogSize--)
 					{
-						sprintf((char*)&LogMessage[MessageSize],"%d,",EventPost->LogData[MessageOffset]);
-						MessageSize = strlen((const char *)&LogMessage[0]);
+						MessageSize += sprintf((char*)&LogMessage[MessageSize],"%d,",EventPost->LogData[MessageOffset]);
 						MessageOffset++;
 					}
 				}
@@ -383,6 +413,7 @@ static void DataLogger_MountFs(void)
 			isCardPresent = true;
 		}
 	}
+
 }
 
 static void DataLogger_UnMountFs(void)
@@ -399,9 +430,9 @@ static void DataLogger_SystemConfigure(void)
     /* Set a start date time and start RTC */
 	RtcDate.Year = 2017U;
 	RtcDate.Month = 12U;
-	RtcDate.Day = 10U;
-	RtcDate.Hour = 11U;
-	RtcDate.Minutes = 10U;
+	RtcDate.Day = 20U;
+	RtcDate.Hour = 18U;
+	RtcDate.Minutes = 46U;
 	RtcDate.Seconds = 0U;
 
     Rtc_Init(&RtcDate);
@@ -422,13 +453,14 @@ static bool DataLogger_IsCardPresent(void)
 	return (IsPresent);
 }
 
-void PORTE_DriverIRQHandler(void)
+void DataLogger_CardDetectTimerCallback(void)
 {
 	bool isCardPresent;
 #ifdef FSL_RTOS_FREE_RTOS
 	datalogger_event_t MessageToPost;
 	BaseType_t HigherPriorityTaskWoken = pdFALSE;;
 #endif
+
 	CardInsertDetectHandle();
 
 	isCardPresent = DataLogger_IsCardPresent();
@@ -446,7 +478,18 @@ void PORTE_DriverIRQHandler(void)
 		#endif
 	}
 
+	SWTimer_DisableTimer(CardDetectTimer);
+
 	#ifdef FSL_RTOS_FREE_RTOS
 	xQueueSendFromISR(DataLoggerMessageQueue, &MessageToPost, &HigherPriorityTaskWoken);
 	#endif
+}
+
+void PORTE_DriverIRQHandler(void)
+{
+	/* start a timer for debounce */
+	SWTimer_EnableTimer(CardDetectTimer);
+
+	/* Clear interrupt flag.*/
+	PORT_ClearPinsInterruptFlags(BOARD_SDHC_CD_PORT_BASE, 1<<DATALOGGER_PIN_DETECT);
 }

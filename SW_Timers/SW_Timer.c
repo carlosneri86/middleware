@@ -447,7 +447,10 @@ void LPTMR0_IRQHandler(void)
 	LPTMR_ClearStatusFlags(TIMER_INSTANCE, kLPTMR_TimerCompareFlag);
 
 	#ifdef FSL_RTOS_FREE_RTOS
-	xEventGroupSetBitsFromISR(SWTimer_Event, SWTIMERS_TIMER_EVENT, &xHigherPriorityTaskWoken);
+	if(SWTimer_Event != NULL)
+	{
+		xEventGroupSetBitsFromISR(SWTimer_Event, SWTIMERS_TIMER_EVENT, &xHigherPriorityTaskWoken);
+	}
 	#else
 	SWTimer_TimerIsrFlag = 1;
 	#endif
