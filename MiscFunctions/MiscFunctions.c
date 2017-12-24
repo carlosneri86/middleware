@@ -1,7 +1,7 @@
 /*HEADER******************************************************************************************
 * File name: MiscFunctions.c
 * Date: Jun 3, 2016
-* Author: Carlos Neri
+* Author: b22385
 *
 **END********************************************************************************************/
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -60,8 +60,10 @@ uint8_t MiscFunction_StringCompare(const uint8_t * StringBase, const uint8_t * S
 	return (bStatus);
 }
 
-void MiscFunctions_MemCopy(const uint8_t * Source, uint8_t * Destination, uint16_t DataSize)
+void MiscFunctions_MemCopy(const void * Source, void * Destination, uint16_t DataSize)
 {
+	uint8_t * SourceAsByte = (uint8_t*)Source;
+	uint8_t * DestinationAsByte = (uint8_t*)Destination;
 	uint32_t * SourceAsWord = (uint32_t*)Source;
 	uint32_t * DestinationAsWord = (uint32_t*)Destination;
 	uint32_t DataOffset = 0;
@@ -69,8 +71,8 @@ void MiscFunctions_MemCopy(const uint8_t * Source, uint8_t * Destination, uint16
 
 	while(DataSize)
 	{
-		AddressModulo = (uint32_t)&Destination[DataOffset] % 4;
-		AddressModulo |= (uint32_t)&Source[DataOffset] % 4;
+		AddressModulo = (uint32_t)&DestinationAsByte[DataOffset] % 4;
+		AddressModulo |= (uint32_t)&SourceAsByte[DataOffset] % 4;
 
 		if((DataSize >= 4)&&(!AddressModulo))
 		{
@@ -80,7 +82,7 @@ void MiscFunctions_MemCopy(const uint8_t * Source, uint8_t * Destination, uint16
 		}
 		else
 		{
-			Destination[DataOffset] = Source[DataOffset];
+			DestinationAsByte[DataOffset] = SourceAsByte[DataOffset];
 			DataOffset += 1;
 			DataSize --;
 		}
@@ -215,3 +217,4 @@ uint32_t MiscFunctions_AsciiToUnsignedInteger(uint8_t *AsciiString)
 
 	return NewData;
 }
+

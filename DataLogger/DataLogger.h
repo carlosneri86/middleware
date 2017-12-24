@@ -57,6 +57,11 @@ uint32_t DataLogger_Init(void);
 
 uint32_t DataLogger_PostEvent(uint8_t * pLogMessage, uint8_t *pLogData, uint16_t LogDataSize);
 
+#ifndef FSL_RTOS_FREE_RTOS
+
+void Datalogger_Task (void);
+#endif
+
 #if defined(__cplusplus)
 }
 #endif // __cplusplus

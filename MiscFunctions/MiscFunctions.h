@@ -1,7 +1,7 @@
 /*HEADER******************************************************************************************
 * Filename: MiscFunctions.h
 * Date: Jun 3, 2016
-* Author: Carlos Neri
+* Author: b22385
 *
 **END********************************************************************************************/
 #ifndef MISCFUNCTIONS_H_
@@ -55,7 +55,7 @@ extern "C" {
 
 uint8_t MiscFunction_StringCompare(const uint8_t * StringBase, const uint8_t * StringToCompare, uint16_t AmountOfCharacters);
 
-void MiscFunctions_MemCopy(const uint8_t * Source, uint8_t * Destination, uint16_t DataSize);
+void MiscFunctions_MemCopy(const void * Source, void * Destination, uint16_t DataSize);
 
 uint8_t MiscFunctions_SearchInString(const uint8_t * Source, uint16_t SourceSize, const uint8_t * StringToSearch, uint16_t StringToSearchSize);
 

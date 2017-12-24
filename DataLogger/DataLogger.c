@@ -34,9 +34,10 @@
 #define DATA_LOGGER_STACK_SIZE			(2048)
 
 #define DATA_LOGGER_TASK_PRIORITY		1
+#endif
 
 #define DATA_LOGGER_MAX_LOG				5
-#endif
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                       Typedef Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -56,6 +57,24 @@ typedef struct
 	uint8_t LogData[100];
 	uint16_t LogDataSize;
 }datalogger_event_t;
+#else
+
+typedef enum
+{
+	DATA_LOGGER_POST_EVENT = (1<<0),
+	DATA_LOGGER_MOUNT_EVENT = (1<<1),
+	DATA_LOGGER_UNMOUNT_EVENT = (1<<2),
+	DATA_LOGGER_ALL_EVENTS = DATA_LOGGER_POST_EVENT|DATA_LOGGER_MOUNT_EVENT|DATA_LOGGER_UNMOUNT_EVENT
+}datalogger_events_t;
+
+typedef struct
+{
+	uint8_t LogMessage[100];
+	uint16_t LogMessageSize;
+	uint8_t LogData[100];
+	uint16_t LogDataSize;
+}datalogger_event_t;
+
 #endif
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                  Function Prototypes Section
@@ -63,11 +82,15 @@ typedef struct
 
 static void DataLogger_SystemConfigure(void);
 
+static bool DataLogger_IsCardPresent(void);
+
 static void DataLogger_MountFs(void);
 
 static void DataLogger_UnMountFs(void);
 
 static void DataLogger_CardDetectTimerCallback (void);
+
+static void DataLogger_WriteMessage(datalogger_event_t * EventPost);
 
 extern void CardInsertDetectHandle(void);
 
@@ -75,8 +98,8 @@ extern void CardInsertDetectHandle(void);
 
 void Datalogger_Task (void * param);
 
-void static DataLogger_WriteMessage(datalogger_event_t * EventPost);
-
+#else
+void Datalogger_Task (void);
 #endif
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                   Global Constants Section
@@ -102,6 +125,14 @@ static FATFS FileSystemHandler;
 
 #ifdef FSL_RTOS_FREE_RTOS
 static xQueueHandle DataLoggerMessageQueue;
+#else
+
+datalogger_event_t EventsToLog[DATA_LOGGER_MAX_LOG];
+
+uint8_t DataLogger_Event = 0;
+
+uint8_t PendingLogs = 0;
+
 #endif
 
 static bool isCardPresent = false;
@@ -115,35 +146,22 @@ static uint8_t CardDetectTimer;
 #ifndef FSL_RTOS_FREE_RTOS
 uint32_t DataLogger_Init(void)
 {
-	FRESULT FileSystemStatus;
-	uint32_t DataLoggerInitStatus = DATA_LOGGER_ERROR;
+	uint32_t DataLoggerInitStatus = DATA_LOGGER_OK;
+	uint8_t LogsOffset = 0;
 
 	DataLogger_SystemConfigure();
 
-	if(!DataLogger_IsCardPresent())
+	DataLogger_MountFs();
+
+	CardDetectTimer = SWTimer_AllocateChannel(500,DataLogger_CardDetectTimerCallback);
+
+	while(LogsOffset < DATA_LOGGER_MAX_LOG)
 	{
-		/* Wait for SD Card insertion */
-		while (!DataLogger_IsCardPresent());
+		MiscFunctions_MemClear((uint8_t*)&EventsToLog[LogsOffset], sizeof(datalogger_event_t));
+		LogsOffset++;
 	}
 
-	FileSystemStatus = disk_initialize(SDDISK);
-
-	if(FileSystemStatus == FR_OK)
-	{
-		/* now that the card is there, mount the file system */
-		FileSystemStatus = f_mount(&FileSystemHandler,"2:/",0);
-
-		if(FileSystemStatus == FR_OK)
-		{
-			FileSystemStatus = f_chdrive("2:/");
-
-			if(FileSystemStatus == FR_OK)
-			{
-				DataLoggerInitStatus = DATA_LOGGER_OK;
-			}
-		}
-	}
-	return(DataLoggerInitStatus);
+	return (DataLoggerInitStatus);
 }
 #else
 
@@ -174,76 +192,87 @@ uint32_t DataLogger_Init(void)
 #ifndef FSL_RTOS_FREE_RTOS
 uint32_t DataLogger_PostEvent(uint8_t * pLogMessage, uint8_t *pLogData, uint16_t LogDataSize)
 {
-	uint32_t	BytesWritten;
-	FIL			LogFile;
-	uint32_t	FileNewLine;
-	FRESULT 	FileSystemStatus;
-	uint32_t	MessageSize;
-	uint16_t	MessageOffset = 0;
 	uint32_t	PostEventStatus = DATA_LOGGER_ERROR;
 
-	/* TODO: change strcat and sprintf with custom ones */
-
-	/* check if the card still there*/
-	if(DataLogger_IsCardPresent())
+	if(isCardPresent)
 	{
-		/* Open the file, move to the last line and log the new entry*/
-		FileSystemStatus = f_open(&LogFile, DATALOGGER_FILE_NAME, FA_WRITE | FA_OPEN_ALWAYS);
-
-		if(FileSystemStatus == FR_OK)
+		if(PendingLogs < DATA_LOGGER_MAX_LOG)
 		{
-			FileNewLine = f_size(&LogFile);
 
-			/* Set file pointer to the start of new line in text file */
-			FileSystemStatus = f_lseek(&LogFile, FileNewLine);
+			MiscFunctions_MemClear((uint8_t*)&EventsToLog[PendingLogs], sizeof(datalogger_event_t));
 
-			if(FileSystemStatus == FR_OK)
+			if(pLogMessage != NULL)
 			{
-				/* get the current time stamp and fill the buffer*/
-				Rtc_GetCurrentDate(&RtcDate);
+				EventsToLog[PendingLogs].LogMessageSize = strlen((char*)pLogMessage);
 
-				memset(&LogMessage[0],0,DATALOGGER_MAX_LOG_MESSAGE);
+				strncpy((char*)&EventsToLog[PendingLogs].LogMessage[0],(char*)pLogMessage,EventsToLog[PendingLogs].LogMessageSize);
 
-				sprintf((char*)&LogMessage[0],"%.2d-%.2d-%d, %.2d:%.2d:%.2d, ",RtcDate.Day,\
-						RtcDate.Month,RtcDate.Year,RtcDate.Hour,\
-						RtcDate.Minutes,RtcDate.Seconds);
-
-				/* Add the application message if available*/
-				if(pLogMessage != NULL)
-				{
-					strcat((char*)&LogMessage[0], (const char*)pLogMessage);
-					/* Calculate the current string size*/
-					MessageSize = strlen((const char *)&LogMessage[0]);
-					LogMessage[MessageSize] = ',';
-					MessageSize += 1;
-				}
-				/* Add application data if available */
-				if(LogDataSize)
-				{
-
-					/* Parse the data and add it to the message buffer */
-					while(LogDataSize--)
-					{
-						sprintf((char*)&LogMessage[MessageSize],"%d,",pLogData[MessageOffset]);
-						MessageSize = strlen((const char *)&LogMessage[0]);
-						MessageOffset++;
-					}
-				}
-				/* Set the end of line */
-				strcat((char*)&LogMessage[0],(const char *)&DataLogger_EndOfLine[0]);
-				MessageSize = strlen((const char *)&LogMessage[0]);
-				/* Write the file */
-				FileSystemStatus = f_write(&LogFile,&LogMessage[0], MessageSize, &BytesWritten);
-
-				/* Close the log file */
-				FileSystemStatus = f_close(&LogFile);
-
-				PostEventStatus = DATA_LOGGER_OK;
 			}
+			else
+			{
+				EventsToLog[PendingLogs].LogMessageSize = 0;
+			}
+
+			if(pLogData != NULL)
+			{
+				MiscFunctions_MemCopy(pLogData, &EventsToLog[PendingLogs].LogData[0], LogDataSize);
+
+				EventsToLog[PendingLogs].LogDataSize = LogDataSize;
+			}
+			else
+			{
+				EventsToLog[PendingLogs].LogDataSize = 0;
+			}
+
+			SET_FLAG(DataLogger_Event,DATA_LOGGER_POST_EVENT);
+
+			PendingLogs++;
 		}
+
+		PostEventStatus = DATA_LOGGER_OK;
 	}
+
+
 	return(PostEventStatus);
 }
+
+void Datalogger_Task (void)
+{
+	uint8_t EventsToProcess;
+	uint8_t CurrentLog = 0;
+
+	EventsToProcess = CHECK_FLAG(DataLogger_Event,DATA_LOGGER_ALL_EVENTS);
+
+	if(EventsToProcess)
+	{
+
+		if(EventsToProcess & DATA_LOGGER_UNMOUNT_EVENT)
+		{
+			DataLogger_UnMountFs();
+		}
+
+		if(EventsToProcess & DATA_LOGGER_MOUNT_EVENT)
+		{
+			DataLogger_MountFs();
+		}
+
+		if(EventsToProcess & DATA_LOGGER_POST_EVENT)
+		{
+			while(PendingLogs)
+			{
+				DataLogger_WriteMessage(&EventsToLog[CurrentLog]);
+				MiscFunctions_MemClear((uint8_t*)&EventsToLog[CurrentLog], sizeof(datalogger_event_t));
+				PendingLogs--;
+				CurrentLog++;
+			}
+		}
+
+		CLEAR_FLAG(DataLogger_Event,EventsToProcess);
+
+	}
+
+}
+
 #else
 
 
@@ -329,7 +358,10 @@ void Datalogger_Task (void * param)
 
 }
 
-void static DataLogger_WriteMessage(datalogger_event_t * EventPost)
+#endif
+
+
+static void DataLogger_WriteMessage(datalogger_event_t * EventPost)
 {
 	uint32_t	BytesWritten;
 	FIL			LogFile;
@@ -394,7 +426,7 @@ void static DataLogger_WriteMessage(datalogger_event_t * EventPost)
 		}
 	}
 }
-#endif
+
 
 static void DataLogger_MountFs(void)
 {
@@ -430,9 +462,9 @@ static void DataLogger_SystemConfigure(void)
     /* Set a start date time and start RTC */
 	RtcDate.Year = 2017U;
 	RtcDate.Month = 12U;
-	RtcDate.Day = 20U;
-	RtcDate.Hour = 18U;
-	RtcDate.Minutes = 46U;
+	RtcDate.Day = 22U;
+	RtcDate.Hour = 8U;
+	RtcDate.Minutes = 00U;
 	RtcDate.Seconds = 0U;
 
     Rtc_Init(&RtcDate);
@@ -469,12 +501,16 @@ void DataLogger_CardDetectTimerCallback(void)
 	{
 		#ifdef FSL_RTOS_FREE_RTOS
 		MessageToPost.Event = DATA_LOGGER_MOUNT_EVENT;
+		#else
+		SET_FLAG(DataLogger_Event,DATA_LOGGER_MOUNT_EVENT);
 		#endif
 	}
 	else
 	{
 		#ifdef FSL_RTOS_FREE_RTOS
 		MessageToPost.Event = DATA_LOGGER_UNMOUNT_EVENT;
+		#else
+		SET_FLAG(DataLogger_Event,DATA_LOGGER_UNMOUNT_EVENT);
 		#endif
 	}
 
