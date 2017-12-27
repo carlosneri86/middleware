@@ -61,10 +61,9 @@ typedef struct
 
 typedef enum
 {
-	DATA_LOGGER_POST_EVENT = (1<<0),
-	DATA_LOGGER_MOUNT_EVENT = (1<<1),
-	DATA_LOGGER_UNMOUNT_EVENT = (1<<2),
-	DATA_LOGGER_ALL_EVENTS = DATA_LOGGER_POST_EVENT|DATA_LOGGER_MOUNT_EVENT|DATA_LOGGER_UNMOUNT_EVENT
+	DATA_LOGGER_POST_EVENT = 0,
+	DATA_LOGGER_MOUNT_EVENT,
+	DATA_LOGGER_UNMOUNT_EVENT
 }datalogger_events_t;
 
 typedef struct
@@ -98,8 +97,6 @@ extern void CardInsertDetectHandle(void);
 
 void Datalogger_Task (void * param);
 
-#else
-void Datalogger_Task (void);
 #endif
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                   Global Constants Section
@@ -238,25 +235,23 @@ uint32_t DataLogger_PostEvent(uint8_t * pLogMessage, uint8_t *pLogData, uint16_t
 
 void Datalogger_Task (void)
 {
-	uint8_t EventsToProcess;
 	uint8_t CurrentLog = 0;
 
-	EventsToProcess = CHECK_FLAG(DataLogger_Event,DATA_LOGGER_ALL_EVENTS);
-
-	if(EventsToProcess)
+	if(DataLogger_Event)
 	{
-
-		if(EventsToProcess & DATA_LOGGER_UNMOUNT_EVENT)
+		if(CHECK_FLAG(DataLogger_Event,DATA_LOGGER_UNMOUNT_EVENT))
 		{
 			DataLogger_UnMountFs();
+			CLEAR_FLAG(DataLogger_Event,DATA_LOGGER_UNMOUNT_EVENT);
 		}
 
-		if(EventsToProcess & DATA_LOGGER_MOUNT_EVENT)
+		if(CHECK_FLAG(DataLogger_Event,DATA_LOGGER_MOUNT_EVENT))
 		{
 			DataLogger_MountFs();
+			CLEAR_FLAG(DataLogger_Event,DATA_LOGGER_MOUNT_EVENT);
 		}
 
-		if(EventsToProcess & DATA_LOGGER_POST_EVENT)
+		if(CHECK_FLAG(DataLogger_Event,DATA_LOGGER_POST_EVENT))
 		{
 			while(PendingLogs)
 			{
@@ -265,10 +260,9 @@ void Datalogger_Task (void)
 				PendingLogs--;
 				CurrentLog++;
 			}
+
+			CLEAR_FLAG(DataLogger_Event,DATA_LOGGER_POST_EVENT);
 		}
-
-		CLEAR_FLAG(DataLogger_Event,EventsToProcess);
-
 	}
 
 }
