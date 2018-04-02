@@ -1,37 +1,29 @@
-/*HEADER******************************************************************************************
-* Filename: MiscFunctions.h
-* Date: Jun 3, 2016
-* Author: b22385
-*
-**END********************************************************************************************/
-#ifndef MISCFUNCTIONS_H_
-#define MISCFUNCTIONS_H_
+#ifndef _SERIAL_PLATFORM_H_
+#define _SERIAL_PLATFORM_H_
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                      Includes Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-#include <stdint.h>
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                  Defines & Macros Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-//! String match status
-#define STRING_OK		(1)
-//! String mismatch status
-#define STRING_ERROR	(0)
 
-#define SET_FLAG(Register,Flag)			(Register |= (1<<Flag))
 
-#define CLEAR_FLAG(Register,Flag)		(Register &= ~(1<<Flag))
-
-#define CHECK_FLAG(Register,Flag)		(Register & (1<<Flag))
-
-#define SIZE_OF_ARRAY(Array)			(sizeof(Array)/sizeof(Array[0]))
-
-#define COUNT_TO_NSEC(Count,ClockReferenceMHz)             (uint64_t)(((uint64_t)(Count)*1000u)/ClockReferenceMHz)
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                      Typedef Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
+
+typedef enum
+{
+	SERIAL_PLATFORM_DATA_RECEIVED = 0,
+	SERIAL_PLATFORM_DATA_OK,
+	SERIAL_PLATFORM_ERROR = 0xFF
+}serialplatformstatus_t;
+
+typedef void (*serialplatformcallback_t)(uint8_t);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                Function-like Macros Section
@@ -53,34 +45,22 @@
 extern "C" {
 #endif // __cplusplus
 
-uint8_t MiscFunction_StringCompare(const uint8_t * StringBase, const uint8_t * StringToCompare, uint16_t AmountOfCharacters);
+void SerialPlatform_Init(uint32_t BaudRate, serialplatformcallback_t Callback);
 
-void MiscFunctions_MemCopy(const void * Source, void * Destination, uint16_t DataSize);
+void SerialPlatform_SendNonBlocking(uint8_t * CommandBuffer, uint16_t BufferSize);
 
-uint8_t MiscFunctions_SearchInString(const uint8_t * Source, uint16_t SourceSize, const uint8_t * StringToSearch, uint16_t StringToSearchSize);
+void SerialPlatform_SendBlocking(uint8_t * CommandBuffer, uint16_t BufferSize);
 
-void MiscFunctions_MemClear(uint8_t * Source, uint16_t DataSize);
+serialplatformstatus_t SerialPlatform_RxStatus(uint8_t * NewData);
 
-uint16_t MiscFunctions_IntegerToAscii(uint32_t Data, uint8_t *AsciiBuffer);
-
-void MiscFunctions_StringReverse(uint8_t * StringToReverse);
-
-uint32_t MiscFunctions_AsciiToUnsignedInteger(uint8_t * AsciiString);
-
-uint8_t * MiscFunctions_FindTokenInString(uint8_t * StringToSearch, uint8_t Token);
-
-uint8_t MiscFunctions_StringCopyUntilToken(const uint8_t * Source, uint8_t * Destination, uint8_t Token);
-
-uint8_t ReverseBitsInByte(uint8_t DataToReverse);
-
-void MiscFunctions_BlockingDelay(uint32_t TargetDelay);
+uint8_t SerialPlatform_Read(void);
 
 #if defined(__cplusplus)
 }
 #endif // __cplusplus
 
 
-#endif /* MISCFUNCTIONS_H_ */
+#endif /* _SERIAL_PLATFORM_H_ */
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // EOF
 ///////////////////////////////////////////////////////////////////////////////////////////////////

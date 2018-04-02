@@ -119,6 +119,20 @@ uint8_t MiscFunctions_SearchInString(const uint8_t * Source, uint16_t SourceSize
 	return(Status);
 }
 
+uint8_t MiscFunctions_StringCopyUntilToken(const uint8_t * Source, uint8_t * Destination, uint8_t Token)
+{
+	uint8_t SourceOffset = 0;
+
+	while((Source[SourceOffset] != Token) && (Source[SourceOffset] != '\0'))
+	{
+		Destination[SourceOffset] = Source[SourceOffset];
+
+		SourceOffset++;
+	}
+
+	return SourceOffset;
+}
+
 void MiscFunctions_MemClear(uint8_t * Source, uint16_t DataSize)
 {
 	uint32_t DataOffset = 0;
@@ -156,6 +170,9 @@ uint16_t MiscFunctions_IntegerToAscii(uint32_t Data, uint8_t *AsciiBuffer)
 	}
 
 	MiscFunctions_StringReverse(AsciiBuffer);
+
+	/* add null terminator */
+	AsciiBuffer[StringSize]= '\0';
 
 	return (StringSize);
 }
@@ -218,3 +235,20 @@ uint32_t MiscFunctions_AsciiToUnsignedInteger(uint8_t *AsciiString)
 	return NewData;
 }
 
+uint8_t ReverseBitsInByte(uint8_t DataToReverse)
+{
+	uint8_t ReversedBits = 0;
+
+	ReversedBits = (uint8_t)(((DataToReverse * 0x0802U & 0x22110U) | (DataToReverse * 0x8020U & 0x88440U)) * 0x10101U >> 16);
+
+
+	return ReversedBits;
+}
+
+void MiscFunctions_BlockingDelay(uint32_t TargetDelay)
+{
+	while(TargetDelay--)
+	{
+		asm("add r0,r0,#0");
+	}
+}
