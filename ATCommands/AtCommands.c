@@ -11,6 +11,11 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#ifdef FSL_RTOS_FREE_RTOS
+#include "FreeRTOS.h"
+#include "task.h"
+#include "event_groups.h"
+#endif
 #include "AtCommands.h"
 #include "AtCommandsPlatform.h"
 #include "SW_Timer.h"
@@ -20,25 +25,34 @@
 //                                   Defines & Macros Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-#define AT_COMMAND_BUFFER_SIZE		(2048)
+#define AT_COMMAND_BUFFER_SIZE				(512)
 
-#define AT_COMMAND_RESPONSE_BUFFER_SIZE		(2048)
+#define AT_COMMAND_RESPONSE_BUFFER_SIZE		(512)
 
-#define AT_COMMAND_COMMAND			(uint8_t*)"AT+"
+#define AT_COMMAND_COMMAND					(uint8_t*)"AT+"
 
-#define AT_COMMAND_COMMAND_SIZE		3
+#define AT_COMMAND_COMMAND_SIZE				3
 
-#define AT_COMMAND_EOF				"\r\n"
+#define AT_COMMAND_EOF						"\r\n"
 
-#define AT_COMMAND_EOF_SIZE			2
+#define AT_COMMAND_EOF_SIZE					2
 
-#define AT_COMMAND_SOF				"\r\n"
+#define AT_COMMAND_SOF						"\r\n"
 
-#define AT_COMMAND_SOF_SIZE			2
+#define AT_COMMAND_SOF_SIZE					2
 
-#define AT_RESPONSE_TIMEOUT				(30000)
+#define AT_RESPONSE_TIMEOUT					(30000)
 
-#define AT_CHARACTER_TIMEOUT			(2)
+#define AT_CHARACTER_TIMEOUT				(2)
+
+#ifdef FSL_RTOS_FREE_RTOS
+#define AT_COMMAND_STACK_SIZE				(256)
+
+#define AT_COMMAND_TASK_PRIORITY			(configMAX_PRIORITIES - 2)
+
+#define ATCOMMANDS_NEW_FRAME_EVENT			(1 << 0)
+
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                       Typedef Section
@@ -64,6 +78,8 @@ typedef enum
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 static uint16_t AtCommands_BuildCommand(uint8_t * CommandToSend, uint8_t *CommandParameters, AtCommandsType_t CommandType);
+
+static void AtCommands_ProcessData(void);
 
 static void AtCommands_DataReceived(uint8_t DataReceived);
 
@@ -110,7 +126,11 @@ static uint8_t CommandsRingBuffer[AT_COMMAND_BUFFER_SIZE];
 
 static uint8_t ResponseBuffer[AT_COMMAND_RESPONSE_BUFFER_SIZE];
 
+#ifndef FSL_RTOS_FREE_RTOS
 static uint16_t PacketProcessingFlags = 0;
+#else
+static EventGroupHandle_t AtCommand_Event = NULL;
+#endif
 
 static AtCommandResponse_t * CommandResponseTable;
 
@@ -152,9 +172,51 @@ void AtCommands_Init(AtCommand_callback_t AppCallback, AtCommandResponse_t * Res
 		CommandResponseTable = ResponseTable;
 		CommandResponseTableSize = AmountCommands;
 	}
+
+	#ifdef FSL_RTOS_FREE_RTOS
+
+	AtCommand_Event = xEventGroupCreate();
+
+	/* create task and event */
+	xTaskCreate((TaskFunction_t) AtCommands_Task, (const char*) "AtCommands_task", AT_COMMAND_STACK_SIZE,\
+						NULL,AT_COMMAND_TASK_PRIORITY,NULL);
+
+
+	#endif
 }
 
+#ifndef FSL_RTOS_FREE_RTOS
 void AtCommands_Task(void)
+{
+
+	if(CHECK_FLAG(PacketProcessingFlags,ATCOMMANDS_NEW_FRAME_FLAG))
+	{
+		CLEAR_FLAG(PacketProcessingFlags,ATCOMMANDS_NEW_FRAME_FLAG);
+
+		AtCommands_ProcessData();
+	}
+}
+#else
+void AtCommands_Task(void * param)
+{
+	EventBits_t EventsTriggered;
+
+	while(1)
+	{
+
+		EventsTriggered = xEventGroupWaitBits(AtCommand_Event,ATCOMMANDS_NEW_FRAME_EVENT, \
+												pdTRUE,pdFALSE,portMAX_DELAY);
+
+		if(EventsTriggered & ATCOMMANDS_NEW_FRAME_EVENT)
+		{
+			AtCommands_ProcessData();
+		}
+	}
+
+}
+#endif
+
+void AtCommands_ProcessData(void)
 {
 	uint32_t FrameSize;
 	uint16_t FrameOffset = 0;
@@ -165,79 +227,73 @@ void AtCommands_Task(void)
 	bool isSearchingNewCommand = true;
 	bool KeepSearching;
 
-	if(CHECK_FLAG(PacketProcessingFlags,ATCOMMANDS_NEW_FRAME_FLAG))
+
+	/* read the frame from the FIFO, make sure the first two bytes are SOF 	*/
+	/* if not, report as custom data?										*/
+	FrameSize = RingBuffer_DataAvailable(&ResponseRingBuffer);
+
+
+	RingBuffer_ReadBuffer(&ResponseRingBuffer,&ResponseBuffer[0],FrameSize);
+
+	CommandOffset = CommandResponseTableSize;
+
+	/* compare with all the table */
+	while(CommandOffset--)
 	{
-		CLEAR_FLAG(PacketProcessingFlags,ATCOMMANDS_NEW_FRAME_FLAG);
-
-		/* read the frame from the FIFO, make sure the first two bytes are SOF 	*/
-		/* if not, report as custom data?										*/
-		FrameSize = RingBuffer_DataAvailable(&ResponseRingBuffer);
-
-
-		RingBuffer_ReadBuffer(&ResponseRingBuffer,&ResponseBuffer[0],FrameSize);
-
-		CommandOffset = CommandResponseTableSize;
-
-		/* compare with all the table */
-		while(CommandOffset--)
+		if(isSearchingNewCommand == true)
 		{
-			if(isSearchingNewCommand == true)
-			{
-				Status = MiscFunction_StringCompare(&CommandStartOfFrame[0],&ResponseBuffer[FrameOffset],AT_COMMAND_SOF_SIZE);
-
-				if(Status == STRING_OK)
-				{
-					/* start comparing after SOF */
-					FrameOffset += AT_COMMAND_SOF_SIZE;
-				}
-
-				isSearchingNewCommand = false;
-			}
-
-			Status = MiscFunction_StringCompare(CommandResponseTable[CommandOffset].Response,&ResponseBuffer[FrameOffset],\
-					CommandResponseTable[CommandOffset].ResponseSize);
+			Status = MiscFunction_StringCompare(&CommandStartOfFrame[0],&ResponseBuffer[FrameOffset],AT_COMMAND_SOF_SIZE);
 
 			if(Status == STRING_OK)
 			{
-				/* found it, now check if there are any parameters */
-				FrameOffset += CommandResponseTable[CommandOffset].ResponseSize;
+				/* start comparing after SOF */
+				FrameOffset += AT_COMMAND_SOF_SIZE;
+			}
 
-				if(FrameSize > (FrameOffset + AT_COMMAND_EOF_SIZE))
-				{
+			isSearchingNewCommand = false;
+		}
 
-					ParameterSize = FrameSize - FrameOffset;
-					KeepSearching = CommandResponseTable[CommandOffset].ResponseCallback(&ResponseBuffer[FrameOffset],ParameterSize);
-				}
-				else
-				{
-					KeepSearching = CommandResponseTable[CommandOffset].ResponseCallback(NULL,0);
-				}
+		Status = MiscFunction_StringCompare(CommandResponseTable[CommandOffset].Response,&ResponseBuffer[FrameOffset],\
+				CommandResponseTable[CommandOffset].ResponseSize);
 
-				if(!KeepSearching)
-				{
-					break;
-				}
-				else
-				{
-					/* if we need to keep searching commands, find where the current command ends 	*/
-					/* and set the offset to the beginning of the next command						*/
-					/* this process assumes the current command ended with EOF (\r\n)				*/
-					/* any special cases will end up as a command not found							*/
-					isSearchingNewCommand = true;
-					CommandOffset = CommandResponseTableSize;
-					NextCommand = MiscFunctions_FindTokenInString(&ResponseBuffer[FrameOffset], CommandEndOfFrame[0]);
-					FrameOffset += ((uint32_t)&NextCommand[1] - (uint32_t)&ResponseBuffer[FrameOffset]);
-				}
+		if(Status == STRING_OK)
+		{
+			/* found it, now check if there are any parameters */
+			FrameOffset += CommandResponseTable[CommandOffset].ResponseSize;
+
+			if(FrameSize > (FrameOffset + AT_COMMAND_EOF_SIZE))
+			{
+
+				ParameterSize = FrameSize - FrameOffset;
+				KeepSearching = CommandResponseTable[CommandOffset].ResponseCallback(&ResponseBuffer[FrameOffset],ParameterSize);
+			}
+			else
+			{
+				KeepSearching = CommandResponseTable[CommandOffset].ResponseCallback(NULL,0);
+			}
+
+			if(!KeepSearching)
+			{
+				break;
+			}
+			else
+			{
+				/* if we need to keep searching commands, find where the current command ends 	*/
+				/* and set the offset to the beginning of the next command						*/
+				/* this process assumes the current command ended with EOF (\r\n)				*/
+				/* any special cases will end up as a command not found							*/
+				isSearchingNewCommand = true;
+				CommandOffset = CommandResponseTableSize;
+				NextCommand = MiscFunctions_FindTokenInString(&ResponseBuffer[FrameOffset], CommandEndOfFrame[0]);
+				FrameOffset += ((uint32_t)&NextCommand[1] - (uint32_t)&ResponseBuffer[FrameOffset]);
 			}
 		}
+	}
 
-		/* a rollover means we went through all the table without success */
-		if(CommandOffset == 0xFFFF)
-		{
-			ApplicationCallback(ATCOMMANDS_RESPONSE_NOT_FOUND_EVENT,&ResponseBuffer[0],FrameSize);
-		}
-
-
+	/* a rollover means we went through all the table without success */
+	if(CommandOffset == 0xFFFF)
+	{
+		ApplicationCallback(ATCOMMANDS_RESPONSE_NOT_FOUND_EVENT,&ResponseBuffer[0],FrameSize);
 	}
 }
 
@@ -394,12 +450,25 @@ void AtCommands_ResponseTimeoutCallback (void)
 
 void AtCommands_CharacterTimeoutCallback (void)
 {
+	#ifdef FSL_RTOS_FREE_RTOS
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+	#endif
 	/* shutdown both timers */
 	SWTimer_DisableTimer(CharacterTimeout);
 	SWTimer_DisableTimer(CommandResponseTimeout);
 
 	/* signal the event or process it here? */
+
+
+	#ifndef FSL_RTOS_FREE_RTOS
+
 	SET_FLAG(PacketProcessingFlags,ATCOMMANDS_NEW_FRAME_FLAG);
+
+	#else
+
+	xEventGroupSetBitsFromISR(AtCommand_Event, ATCOMMANDS_NEW_FRAME_EVENT, &xHigherPriorityTaskWoken);
+
+	#endif
 }
 
 static void AtCommands_DataReceived(uint8_t DataReceived)

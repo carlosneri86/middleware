@@ -19,9 +19,9 @@
 #define TIMER_INSTANCE  LPTMR0
 
 #ifdef FSL_RTOS_FREE_RTOS
-#define SWTIMERS_STACK_SIZE				(1024)
+#define SWTIMERS_STACK_SIZE				(256)
 
-#define SWTIMERS_TASK_PRIORITY			configMAX_PRIORITIES - 3
+#define SWTIMERS_TASK_PRIORITY			configMAX_PRIORITIES - 2
 
 #define SWTIMERS_TIMER_EVENT			(1)
 #endif
@@ -42,7 +42,9 @@ typedef struct
 //                                  Function Prototypes Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 /* SWTimer task */
+#ifdef FSL_RTOS_FREE_RTOS
 void SWTimer_SWTimerTask (void * param);
+#endif
 
 static void SWTimer_PlatformTimerInit(void);
 
@@ -114,8 +116,6 @@ const static uint16_t  SWTimer_gEnableMasks[SWTIMER_MAX_TIMERS] =
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                   Global Variables Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-/* Flag to signalize a timer ISR */
-volatile uint8_t SWTimer_TimerIsrFlag = 0;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                   Static Variables Section
@@ -129,8 +129,15 @@ static uint8_t isPlatformTimerEnabled = 0;
 
 /* Amount of timers allocated */
 static uint8_t SWTimer_Allocated = 0;
-#ifdef FSL_RTOS_FREE_RTOS
+
+#ifndef FSL_RTOS_FREE_RTOS
+/* Flag to signalize a timer ISR */
+volatile static  uint8_t SWTimer_TimerIsrFlag = 0;
+
+#else
+
 static EventGroupHandle_t SWTimer_Event = NULL;
+
 #endif
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                      Functions Section
@@ -147,9 +154,12 @@ void SWTimer_Init(void)
 
 	#ifdef FSL_RTOS_FREE_RTOS
 
+	SWTimer_Event = xEventGroupCreate();
+
 	/* create task and event */
 	xTaskCreate((TaskFunction_t) SWTimer_SWTimerTask, (const char*) "SWTimers_task", SWTIMERS_STACK_SIZE,\
 						NULL,SWTIMERS_TASK_PRIORITY,NULL);
+
 	#endif
 }
 
@@ -162,6 +172,7 @@ void SWTimer_Init(void)
 uint8_t SWTimer_AllocateChannel(uint32_t Counter, void (* pTimerCallback)(void))
 {
 	uint8_t TimerOffset = 0;
+	uint32_t CounterValue;
 
 	while(TimerOffset < SWTIMER_MAX_TIMERS)
 	{
@@ -170,9 +181,21 @@ uint8_t SWTimer_AllocateChannel(uint32_t Counter, void (* pTimerCallback)(void))
 		if(!(SWTimer_Allocated & 1<<TimerOffset))
 		{
 			SWTimer_Allocated |= (1<<TimerOffset);
+
 			/* Load the counter and the reload value */
-			SWTimers_gCounters[TimerOffset].Counter = Counter/SWTIMER_BASE_TIME;
-			SWTimers_gCounters[TimerOffset].CounterReload = Counter/SWTIMER_BASE_TIME;
+			/* use minimum if is too small			 */
+			CounterValue = Counter/SWTIMER_BASE_TIME;
+
+			if(CounterValue)
+			{
+				SWTimers_gCounters[TimerOffset].Counter = CounterValue;
+				SWTimers_gCounters[TimerOffset].CounterReload = CounterValue;
+			}
+			else
+			{
+				SWTimers_gCounters[TimerOffset].Counter = SWTIMER_BASE_TIME;
+				SWTimers_gCounters[TimerOffset].CounterReload = SWTIMER_BASE_TIME;
+			}
 
 			/* Set the timer callback */
 			if(pTimerCallback != NULL)
@@ -380,10 +403,6 @@ void SWTimer_StartTimers (void)
  *END**************************************************************************/
 void SWTimer_SWTimerTask (void * param)
 {
-	#ifdef FSL_RTOS_FREE_RTOS
-	SWTimer_Event = xEventGroupCreate();
-	#endif
-
 	while(1)
 	{
 		/* service the timers*/
@@ -404,8 +423,8 @@ static void SWTimer_PlatformTimerInit(void)
 	/* Initialize HW timer. Usually the time base is 1ms*/
 	LPTMR_GetDefaultConfig(&TimerConfig);
 
-	/* use the oscerclk as clock source */
-	TimerConfig.prescalerClockSource = kLPTMR_PrescalerClock_3;
+	/* use the IRC as clock source */
+	TimerConfig.prescalerClockSource = kLPTMR_PrescalerClock_0;
 	/* reduce the clock to match needs */
 	TimerConfig.bypassPrescaler = false;
 	TimerConfig.value = kLPTMR_Prescale_Glitch_3;
@@ -414,7 +433,7 @@ static void SWTimer_PlatformTimerInit(void)
 	/* Init pit module */
 	LPTMR_Init(TIMER_INSTANCE, &TimerConfig);
 
-	TimerClock = CLOCK_GetFreq(kCLOCK_Osc0ErClk);
+	TimerClock = CLOCK_GetFreq(kCLOCK_McgInternalRefClk);
 	TimerClock /= Prescaler;
 
 	/* Set timer period for channel 0 */

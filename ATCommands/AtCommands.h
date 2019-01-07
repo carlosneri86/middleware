@@ -66,7 +66,11 @@ typedef void (* AtCommand_callback_t)(AtCommandsEvent_t, uint8_t*, uint16_t);
 extern "C" {
 #endif // __cplusplus
 
+#ifndef FSL_RTOS_FREE_RTOS
 void AtCommands_Task(void);
+#else
+void AtCommands_Task(void * param);
+#endif
 
 void AtCommands_Init(AtCommand_callback_t AppCallback, AtCommandResponse_t * ResponseTable, uint16_t AmountCommands);
 

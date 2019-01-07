@@ -13,9 +13,9 @@
 //! Error flag for SW timer
 #define SWTIMER_ERROR	(1)
 //! Time based in milliseconds. Used to calculate on precompile each SW timer period
-#define SWTIMER_BASE_TIME	(5)
+#define SWTIMER_BASE_TIME	(2)
 //! Maximum number of supported timers */
-#define SWTIMER_MAX_TIMERS	(10UL)
+#define SWTIMER_MAX_TIMERS	(15UL)
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                      Typedef Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
