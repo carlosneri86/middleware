@@ -25,9 +25,9 @@
 //                                   Defines & Macros Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-#define AT_COMMAND_BUFFER_SIZE				(512)
+#define AT_COMMAND_BUFFER_SIZE				(2048)
 
-#define AT_COMMAND_RESPONSE_BUFFER_SIZE		(512)
+#define AT_COMMAND_RESPONSE_BUFFER_SIZE		(2048)
 
 #define AT_COMMAND_COMMAND					(uint8_t*)"AT+"
 
@@ -43,7 +43,7 @@
 
 #define AT_RESPONSE_TIMEOUT					(30000)
 
-#define AT_CHARACTER_TIMEOUT				(2)
+#define AT_CHARACTER_TIMEOUT				(20)
 
 #ifdef FSL_RTOS_FREE_RTOS
 #define AT_COMMAND_STACK_SIZE				(256)
@@ -469,6 +469,27 @@ void AtCommands_CharacterTimeoutCallback (void)
 	xEventGroupSetBitsFromISR(AtCommand_Event, ATCOMMANDS_NEW_FRAME_EVENT, &xHigherPriorityTaskWoken);
 
 	#endif
+}
+
+void AtCommands_EnableUart(bool isEnabled)
+{
+	AtCommands_PlatformUartEnableRx(isEnabled);
+
+	AtCommands_PlatformUartEnableTx(isEnabled);
+
+	RingBuffer_Reset(&ResponseRingBuffer);
+}
+
+void AtCommands_EnableUartRx(bool isEnabled)
+{
+	AtCommands_PlatformUartEnableRx(isEnabled);
+
+	RingBuffer_Reset(&ResponseRingBuffer);
+}
+
+void AtCommands_EnableUartTx(bool isEnabled)
+{
+	AtCommands_PlatformUartEnableTx(isEnabled);
 }
 
 static void AtCommands_DataReceived(uint8_t DataReceived)

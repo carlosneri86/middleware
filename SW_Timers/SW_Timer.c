@@ -128,7 +128,7 @@ static SWTimer_t SWTimers_gCounters[SWTIMER_MAX_TIMERS];
 static uint8_t isPlatformTimerEnabled = 0;
 
 /* Amount of timers allocated */
-static uint8_t SWTimer_Allocated = 0;
+static uint16_t SWTimer_Allocated = 0;
 
 #ifndef FSL_RTOS_FREE_RTOS
 /* Flag to signalize a timer ISR */
@@ -150,8 +150,6 @@ static EventGroupHandle_t SWTimer_Event = NULL;
  *END**************************************************************************/
 void SWTimer_Init(void)
 {
-	SWTimer_PlatformTimerInit();
-
 	#ifdef FSL_RTOS_FREE_RTOS
 
 	SWTimer_Event = xEventGroupCreate();
@@ -161,6 +159,10 @@ void SWTimer_Init(void)
 						NULL,SWTIMERS_TASK_PRIORITY,NULL);
 
 	#endif
+
+	/* TODO: Implement callbacks with parameter passing */
+
+	SWTimer_PlatformTimerInit();
 }
 
 /*FUNCTION**********************************************************************
@@ -426,15 +428,19 @@ static void SWTimer_PlatformTimerInit(void)
 	/* use the IRC as clock source */
 	TimerConfig.prescalerClockSource = kLPTMR_PrescalerClock_0;
 	/* reduce the clock to match needs */
-	TimerConfig.bypassPrescaler = false;
-	TimerConfig.value = kLPTMR_Prescale_Glitch_3;
+	TimerConfig.bypassPrescaler = true;
+	TimerConfig.value = kLPTMR_Prescale_Glitch_0;
 	Prescaler = (1 << (TimerConfig.value + 1));
 
 	/* Init pit module */
 	LPTMR_Init(TIMER_INSTANCE, &TimerConfig);
 
 	TimerClock = CLOCK_GetFreq(kCLOCK_McgInternalRefClk);
-	TimerClock /= Prescaler;
+
+	if(TimerConfig.bypassPrescaler == false)
+	{
+		TimerClock /= Prescaler;
+	}
 
 	/* Set timer period for channel 0 */
 	LPTMR_SetTimerPeriod(TIMER_INSTANCE, MSEC_TO_COUNT(SWTIMER_BASE_TIME, TimerClock));

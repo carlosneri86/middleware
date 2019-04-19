@@ -80,6 +80,11 @@ AtCommandsStatus_t ATCommands_ExecuteCommand(uint8_t * CommandToSend);
 
 AtCommandsStatus_t ATCommands_SendCustomCommand(uint8_t *CommandToSend, uint16_t CommandSize);
 
+void AtCommands_EnableUart(bool isEnabled);
+
+void AtCommands_EnableUartRx(bool isEnabled);
+
+void AtCommands_EnableUartTx(bool isEnabled);
 
 #if defined(__cplusplus)
 }

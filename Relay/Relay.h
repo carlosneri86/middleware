@@ -1,34 +1,27 @@
-/*HEADER******************************************************************************************
-* Filename: AtCommands.h
-* Date: Apr 26, 2016
-* Author: Carlos Neri
-*
-**END********************************************************************************************/
-#ifndef ATCOMMANDSPLATFORM_H_
-#define ATCOMMANDSPLATFORM_H_
-
+#ifndef RELAY_H_
+#define RELAY_H_
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                      Includes Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-#include "fsl_uart.h"
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                  Defines & Macros Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-#define AT_COMMANS_PLAT_UART	(UART2)
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                      Typedef Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
+
 typedef enum
 {
-	ATCOMMANDS_PLATFORM_DATA_RECEIVED = 0,
-	ATCOMMANDS_PLATFORM_DATA_OK,
-	ATCOMMANDS_PLATFORM_ERROR = 0xFF
-}AtCommandsPlatformStatus_t;
+	RELAY_0 = 0,
+	RELAY_1 = 1,
+	RELAY_MAX
+}relay_t;
 
-typedef void (*AtCommandsPlatformCallback_t)(uint8_t);
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                Function-like Macros Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -41,7 +34,6 @@ typedef void (*AtCommandsPlatformCallback_t)(uint8_t);
 //                                  Extern Variables Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                Function Prototypes Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -50,23 +42,20 @@ typedef void (*AtCommandsPlatformCallback_t)(uint8_t);
 extern "C" {
 #endif // __cplusplus
 
-void AtCommands_PlatformUartInit  (uint32_t BaudRate, AtCommandsPlatformCallback_t Callback);
+void Relay_Initialization(void);
 
-void AtCommands_PlatformUartSend (uint8_t * CommandBuffer, uint16_t BufferSize);
+void Relay_Enable(relay_t SelectedRelay);
 
-AtCommandsPlatformStatus_t AtCommands_PlatformUartRxStatus(uint8_t * NewData);
+void Relay_Disable(relay_t SelectedRelay);
 
-uint8_t AtCommands_PlatformUartRead (void);
+bool Relay_GetStatus(relay_t SelectedRelay);
 
-void AtCommands_PlatformUartEnableTx(bool isEnabled);
-
-void AtCommands_PlatformUartEnableRx(bool isEnabled);
 #if defined(__cplusplus)
 }
 #endif // __cplusplus
 
 
-#endif /* ATCOMMANDSPLATFORM_H_ */
+#endif /* RELAY_H_ */
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // EOF
 ///////////////////////////////////////////////////////////////////////////////////////////////////

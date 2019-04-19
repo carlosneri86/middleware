@@ -11,6 +11,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include "fsl_port.h"
 #include "pin_mux.h"
 #include "AtCommandsPlatform.h"
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -121,6 +122,34 @@ AtCommandsPlatformStatus_t AtCommands_PlatformUartRxStatus(uint8_t * NewData)
 	}
 
 	return Status;
+}
+
+void AtCommands_PlatformUartEnableRx(bool isEnabled)
+{
+	UART_EnableRx(AT_COMMANS_PLAT_UART,isEnabled);
+
+	if(isEnabled)
+	{
+		PORT_SetPinMux(BOARD_INITESP8266_LCD_P42_PORT, BOARD_INITESP8266_LCD_P42_PIN, kPORT_MuxAlt3);
+	}
+	else
+	{
+		PORT_SetPinMux(BOARD_INITESP8266_LCD_P42_PORT, BOARD_INITESP8266_LCD_P42_PIN, kPORT_PinDisabledOrAnalog);
+	}
+}
+
+void AtCommands_PlatformUartEnableTx(bool isEnabled)
+{
+	UART_EnableTx(AT_COMMANS_PLAT_UART,isEnabled);
+
+	if(isEnabled)
+	{
+		PORT_SetPinMux(BOARD_INITESP8266_LCD_P43_PORT, BOARD_INITESP8266_LCD_P43_PIN, kPORT_MuxAlt3);
+	}
+	else
+	{
+		PORT_SetPinMux(BOARD_INITESP8266_LCD_P43_PORT, BOARD_INITESP8266_LCD_P43_PIN, kPORT_PinDisabledOrAnalog);
+	}
 }
 
 void AtCommandsPlatform_Callback(UART_Type *base, uart_handle_t *handle, status_t status, void *userData)

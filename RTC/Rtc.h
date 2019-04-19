@@ -1,34 +1,40 @@
-/*HEADER******************************************************************************************
-* Filename: AtCommands.h
-* Date: Apr 26, 2016
-* Author: Carlos Neri
-*
-**END********************************************************************************************/
-#ifndef ATCOMMANDSPLATFORM_H_
-#define ATCOMMANDSPLATFORM_H_
+#ifndef _RTC_H_
+#define _RTC_H_
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                      Includes Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-#include "fsl_uart.h"
+#include <stdint.h>
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                  Defines & Macros Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-#define AT_COMMANS_PLAT_UART	(UART2)
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                      Typedef Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
+
+typedef struct
+{
+	uint16_t Year;
+	uint8_t Month;
+	uint8_t Day;
+	uint8_t Hour;
+	uint8_t Minutes;
+	uint8_t Seconds;
+}rtc_date_t;
+
 typedef enum
 {
-	ATCOMMANDS_PLATFORM_DATA_RECEIVED = 0,
-	ATCOMMANDS_PLATFORM_DATA_OK,
-	ATCOMMANDS_PLATFORM_ERROR = 0xFF
-}AtCommandsPlatformStatus_t;
+	RTC_OK = 0,
+	RTC_WRONG_PARAMETER,
+	RTC_NO_ALARM_SET
+}rtc_status_t;
 
-typedef void (*AtCommandsPlatformCallback_t)(uint8_t);
+typedef void (* rtc_alarm_callback_t)(void);
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                Function-like Macros Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -41,7 +47,6 @@ typedef void (*AtCommandsPlatformCallback_t)(uint8_t);
 //                                  Extern Variables Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                Function Prototypes Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -50,23 +55,28 @@ typedef void (*AtCommandsPlatformCallback_t)(uint8_t);
 extern "C" {
 #endif // __cplusplus
 
-void AtCommands_PlatformUartInit  (uint32_t BaudRate, AtCommandsPlatformCallback_t Callback);
+rtc_status_t Rtc_Init(rtc_date_t * RTcInitDate);
 
-void AtCommands_PlatformUartSend (uint8_t * CommandBuffer, uint16_t BufferSize);
+rtc_status_t Rtc_GetCurrentDate(rtc_date_t * RtcDate);
 
-AtCommandsPlatformStatus_t AtCommands_PlatformUartRxStatus(uint8_t * NewData);
+rtc_status_t Rtc_SetAlarmByDate(rtc_date_t * AlarmDate, rtc_alarm_callback_t AlarmCallback);
 
-uint8_t AtCommands_PlatformUartRead (void);
+rtc_status_t Rtc_SetAlarmBySeconds(uint32_t AlarmSeconds, rtc_alarm_callback_t AlarmCallback);
 
-void AtCommands_PlatformUartEnableTx(bool isEnabled);
+void Rtc_SetCurrentSecondsCounter(uint32_t CurrentSeconds);
 
-void AtCommands_PlatformUartEnableRx(bool isEnabled);
+uint32_t Rtc_GetCurrentSecondsCounter(void);
+
+rtc_status_t Rtc_GetAlarmStatusInSeconds(uint32_t * AlarmRemainingSeconds);
+
+void Rtc_AlarmCancel(void);
+
 #if defined(__cplusplus)
 }
 #endif // __cplusplus
 
 
-#endif /* ATCOMMANDSPLATFORM_H_ */
+#endif /* _RTC_H_ */
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // EOF
 ///////////////////////////////////////////////////////////////////////////////////////////////////
