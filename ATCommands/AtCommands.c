@@ -1,8 +1,33 @@
 /*HEADER******************************************************************************************
-* Filename: AtCommands.c
-* Date: Mar 12, 2016
-* Author: Carlos Neri
-*
+BSD 3-Clause License
+
+Copyright (c) 2020, Carlos Neri
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **END********************************************************************************************/
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                      Includes Section
@@ -21,6 +46,7 @@
 #include "SW_Timer.h"
 #include "MiscFunctions.h"
 #include "RingBuffer.h"
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                   Defines & Macros Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -43,7 +69,7 @@
 
 #define AT_RESPONSE_TIMEOUT					(30000)
 
-#define AT_CHARACTER_TIMEOUT				(20)
+#define AT_CHARACTER_TIMEOUT				(40)
 
 #ifdef FSL_RTOS_FREE_RTOS
 #define AT_COMMAND_STACK_SIZE				(256)
@@ -83,7 +109,7 @@ static void AtCommands_ProcessData(void);
 
 static void AtCommands_DataReceived(uint8_t DataReceived);
 
-void AtCommands_ResponseTimeoutCallback (void);
+void AtCommands_ResponseTimeoutCallback (void * Args);
 
 void AtCommands_CharacterTimeoutCallback (void);
 
@@ -118,7 +144,7 @@ static AtCommand_callback_t ApplicationCallback;
 
 static swtimer_t CommandResponseTimeout = 0xFF;
 
-static swtimer_t CharacterTimeout = 0xFF;
+//static swtimer_t CharacterTimeout = 0xFF;
 
 static uint8_t CommandBuffer[AT_COMMAND_BUFFER_SIZE];
 
@@ -158,10 +184,13 @@ void AtCommands_Init(AtCommand_callback_t AppCallback, AtCommandResponse_t * Res
 
 	RingBuffer_Init(&ResponseRingBuffer,&CommandsRingBuffer[0],SIZE_OF_ARRAY(CommandsRingBuffer));
 
-	CommandResponseTimeout = SWTimer_AllocateChannel(AT_RESPONSE_TIMEOUT,AtCommands_ResponseTimeoutCallback);
+	CommandResponseTimeout = SWTimer_AllocateChannel(AT_RESPONSE_TIMEOUT,AtCommands_ResponseTimeoutCallback,NULL);
 
-	CharacterTimeout = SWTimer_AllocateChannel(AT_CHARACTER_TIMEOUT,AtCommands_CharacterTimeoutCallback);
-
+#if 0
+	CharacterTimeout = SWTimer_AllocateChannel(AT_CHARACTER_TIMEOUT,AtCommands_CharacterTimeoutCallback,NULL);
+#else
+	AtCommand_PlatformCharacterTimeoutInit(AtCommands_CharacterTimeoutCallback,AT_CHARACTER_TIMEOUT);
+#endif
 	if(AppCallback != NULL)
 	{
 		ApplicationCallback = AppCallback;
@@ -184,6 +213,19 @@ void AtCommands_Init(AtCommand_callback_t AppCallback, AtCommandResponse_t * Res
 
 	#endif
 }
+
+void AtCommands_ResetModule(void)
+{
+	AtCommands_PlatformAssertReset();
+#ifdef FSL_RTOS_FREE_RTOS
+	vTaskDelay(50/portTICK_PERIOD_MS);
+#else
+	/* empiric time */
+	MiscFunctions_BlockingDelay(2000);
+#endif
+	AtCommands_PlatformDeassertReset();
+}
+
 
 #ifndef FSL_RTOS_FREE_RTOS
 void AtCommands_Task(void)
@@ -441,7 +483,7 @@ static uint16_t AtCommands_BuildCommand(uint8_t * CommandToSend, uint8_t *Comman
 	return CommandBufferOffset;
 }
 
-void AtCommands_ResponseTimeoutCallback (void)
+void AtCommands_ResponseTimeoutCallback (void * Args)
 {
 	SWTimer_DisableTimer(CommandResponseTimeout);
 
@@ -453,8 +495,9 @@ void AtCommands_CharacterTimeoutCallback (void)
 	#ifdef FSL_RTOS_FREE_RTOS
 	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 	#endif
+
 	/* shutdown both timers */
-	SWTimer_DisableTimer(CharacterTimeout);
+	AtCommand_PlatformCharacterTimeoutStop();
 	SWTimer_DisableTimer(CommandResponseTimeout);
 
 	/* signal the event or process it here? */
@@ -466,7 +509,7 @@ void AtCommands_CharacterTimeoutCallback (void)
 
 	#else
 
-	xEventGroupSetBitsFromISR(AtCommand_Event, ATCOMMANDS_NEW_FRAME_EVENT, &xHigherPriorityTaskWoken);
+	xEventGroupSetBitsFromISR(AtCommand_Event, ATCOMMANDS_NEW_FRAME_EVENT,&xHigherPriorityTaskWoken);
 
 	#endif
 }
@@ -494,23 +537,29 @@ void AtCommands_EnableUartTx(bool isEnabled)
 
 static void AtCommands_DataReceived(uint8_t DataReceived)
 {
-	swtimerstatus_t Status;
+	//swtimerstatus_t Status;
 	/* push the new character */
 	RingBuffer_WriteData(&ResponseRingBuffer,&DataReceived);
 
+#if 0
 	/* Check if it was enabled, if not enable it */
 	Status = SWTimer_TimerStatus(CharacterTimeout);
+
 
 	if(Status == SWTIMER_ENABLED)
 	{
 		/* reset the timer. If this timer reaches 0, means we're not longer getting data 	*/
 		/* so let's process it 																*/
 		SWTimer_UpdateCounter(CharacterTimeout,AT_CHARACTER_TIMEOUT);
+		AtCommand_PlatformCharacterTimeoutRefresh();
 	}
 	else
 	{
 		SWTimer_EnableTimer(CharacterTimeout);
 	}
+#else
+	AtCommand_PlatformCharacterTimeoutRefresh();
+#endif
 }
 
 /* EOF */

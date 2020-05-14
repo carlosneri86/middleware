@@ -1,3 +1,34 @@
+/*HEADER******************************************************************************************
+BSD 3-Clause License
+
+Copyright (c) 2020, Carlos Neri
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+**END********************************************************************************************/
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                      Includes Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -10,13 +41,13 @@
 #include "event_groups.h"
 #endif
 #include "SW_Timer.h"
-#include "fsl_lptmr.h"
-
+#include "fsl_tpm.h"
+#include "DebugPins.h"
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                   Defines & Macros Section
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 /* Timer instance */
-#define TIMER_INSTANCE  LPTMR0
+#define TIMER_INSTANCE  TPM0
 
 #ifdef FSL_RTOS_FREE_RTOS
 #define SWTIMERS_STACK_SIZE				(256)
@@ -36,7 +67,8 @@ typedef struct
 {
 	uint32_t CounterReload; /**< Timer reload value */
 	uint32_t Counter;		/**< Timer counter */
-	void (* SWTimer_Callback)(void);
+	void * CallbackArgs;
+	void (* SWTimer_Callback)(void*);
 }SWTimer_t;
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //                                  Function Prototypes Section
@@ -171,7 +203,7 @@ void SWTimer_Init(void)
  * Description   : Allocate a channel and configures it.
  *
  *END**************************************************************************/
-uint8_t SWTimer_AllocateChannel(uint32_t Counter, void (* pTimerCallback)(void))
+uint8_t SWTimer_AllocateChannel(uint32_t Counter, void (* pTimerCallback)(void*), void * Args)
 {
 	uint8_t TimerOffset = 0;
 	uint32_t CounterValue;
@@ -195,14 +227,15 @@ uint8_t SWTimer_AllocateChannel(uint32_t Counter, void (* pTimerCallback)(void))
 			}
 			else
 			{
-				SWTimers_gCounters[TimerOffset].Counter = SWTIMER_BASE_TIME;
-				SWTimers_gCounters[TimerOffset].CounterReload = SWTIMER_BASE_TIME;
+				SWTimers_gCounters[TimerOffset].Counter = 1;
+				SWTimers_gCounters[TimerOffset].CounterReload = 1;
 			}
 
 			/* Set the timer callback */
 			if(pTimerCallback != NULL)
 			{
 				SWTimers_gCounters[TimerOffset].SWTimer_Callback = pTimerCallback;
+				SWTimers_gCounters[TimerOffset].CallbackArgs = Args;
 			}
 
 			/* exit the cycle*/
@@ -345,9 +378,6 @@ void SWTimer_ServiceTimers(void)
 	{
 		SWTimer_TimerIsrFlag = 0;
 #endif
-
-
-
 		/* execute only when there's at least one timer enabled */
 		if(SWTimer_gTimersEnabled)
 		{
@@ -360,7 +390,7 @@ void SWTimer_ServiceTimers(void)
 
 					if(!SWTimers_gCounters[MaxCounter].Counter)
 					{
-						SWTimers_gCounters[MaxCounter].SWTimer_Callback();
+						SWTimers_gCounters[MaxCounter].SWTimer_Callback(SWTimers_gCounters[MaxCounter].CallbackArgs);
 						SWTimers_gCounters[MaxCounter].Counter = SWTimers_gCounters[MaxCounter].CounterReload;
 					}
 				}
@@ -419,57 +449,44 @@ void SWTimer_SWTimerTask (void * param)
 
 static void SWTimer_PlatformTimerInit(void)
 {
-	lptmr_config_t TimerConfig;
-	uint32_t TimerClock;
-	uint8_t Prescaler;
-	/* Initialize HW timer. Usually the time base is 1ms*/
-	LPTMR_GetDefaultConfig(&TimerConfig);
+	tpm_config_t TpmInfo;
+	uint32_t TpmClock;
 
-	/* use the IRC as clock source */
-	TimerConfig.prescalerClockSource = kLPTMR_PrescalerClock_0;
-	/* reduce the clock to match needs */
-	TimerConfig.bypassPrescaler = true;
-	TimerConfig.value = kLPTMR_Prescale_Glitch_0;
-	Prescaler = (1 << (TimerConfig.value + 1));
+	TPM_GetDefaultConfig(&TpmInfo);
 
-	/* Init pit module */
-	LPTMR_Init(TIMER_INSTANCE, &TimerConfig);
+	TpmInfo.prescale = kTPM_Prescale_Divide_4;
 
-	TimerClock = CLOCK_GetFreq(kCLOCK_McgInternalRefClk);
+	TPM_Init(TIMER_INSTANCE, &TpmInfo);
 
-	if(TimerConfig.bypassPrescaler == false)
-	{
-		TimerClock /= Prescaler;
-	}
+	TpmClock = CLOCK_GetFreq(kCLOCK_Osc0ErClk);
 
-	/* Set timer period for channel 0 */
-	LPTMR_SetTimerPeriod(TIMER_INSTANCE, MSEC_TO_COUNT(SWTIMER_BASE_TIME, TimerClock));
+	TpmClock /= 4;
 
-	/* Enable timer interrupts for channel 0 */
-	LPTMR_EnableInterrupts(TIMER_INSTANCE, kLPTMR_TimerInterruptEnable);
+    TPM_SetTimerPeriod(TIMER_INSTANCE, MSEC_TO_COUNT(SWTIMER_BASE_TIME, TpmClock));
 
-	/* Enable at the NVIC */
-	NVIC_SetPriority(LPTMR0_IRQn, 2);
-	EnableIRQ(LPTMR0_IRQn);
+    TPM_EnableInterrupts(TIMER_INSTANCE, kTPM_TimeOverflowInterruptEnable);
+
+    EnableIRQ(TPM0_IRQn);
 }
 
 static void SWTimer_PlatformTimerStart(void)
 {
-	LPTMR_StartTimer(TIMER_INSTANCE);
+	TPM_StartTimer(TIMER_INSTANCE, kTPM_SystemClock);
 }
 
 static void SWTimer_PlatformTimerStop(void)
 {
-	LPTMR_StopTimer(TIMER_INSTANCE);
+	TPM_StopTimer(TIMER_INSTANCE);
 }
 
-void LPTMR0_IRQHandler(void)
+void TPM0_IRQHandler(void)
 {
 	#ifdef FSL_RTOS_FREE_RTOS
 	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 	#endif
+
 	/* Clear interrupt flag.*/
-	LPTMR_ClearStatusFlags(TIMER_INSTANCE, kLPTMR_TimerCompareFlag);
+	TPM_ClearStatusFlags(TIMER_INSTANCE, kTPM_TimeOverflowFlag);
 
 	#ifdef FSL_RTOS_FREE_RTOS
 	if(SWTimer_Event != NULL)
